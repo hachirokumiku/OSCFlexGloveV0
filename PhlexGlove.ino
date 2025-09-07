@@ -6,7 +6,7 @@
 
   Hardware components:
   - Wemos D1 Mini (ESP8266)
-  - 74HC4051 8-channel Analog Multiplexer (for flex sensors)
+  - 74HC4051 8-channel Analog Multiplexer (for flex sensors and joystick)
   - BMI270 IMU (for motion control)
   - XY Joystick
   - Two push buttons
@@ -42,12 +42,10 @@ const int MUX_Z_PIN = A0;
 const int MUX_S0_PIN = D5;  // Select pin S0
 const int MUX_S1_PIN = D6;  // Select pin S1
 const int MUX_S2_PIN = D7;  // Select pin S2
-const int NUM_FLEX_SENSORS = 5; // Using 5 flex sensors for a single hand
 
-// Joystick
-const int JOY_X_PIN = A0; // NOTE: A0 is shared with the MUX!
-                          // We will manually switch between them.
-const int JOY_Y_PIN = D0; // D0 is also known as RX, use with care.
+const int NUM_FLEX_SENSORS = 5; // Using 5 flex sensors for a single hand
+const int JOY_X_CHANNEL = 5;    // Mux channel for Joystick X
+const int JOY_Y_CHANNEL = 6;    // Mux channel for Joystick Y
 
 // Buttons
 const int BTN1_PIN = D1;
@@ -83,9 +81,6 @@ void setup() {
   pinMode(MUX_S1_PIN, OUTPUT);
   pinMode(MUX_S2_PIN, OUTPUT);
   pinMode(MUX_Z_PIN, INPUT);
-
-  // Set up Joystick pins
-  pinMode(JOY_Y_PIN, INPUT);
 
   // Set up Button pins
   pinMode(BTN1_PIN, INPUT_PULLUP);
@@ -124,7 +119,7 @@ void loop() {
       setMuxChannel(i);
       delay(1); // Small delay for the MUX to settle
       flexValues[i] = analogRead(MUX_Z_PIN);
-      
+
       // Create and send OSC message
       OSCMessage msg("/glove/flex");
       msg.add(i); // Add the sensor index
@@ -136,11 +131,13 @@ void loop() {
     }
 
     // === Read Joystick ===
-    // The joystick X-axis is read on A0, which is also the MUX pin.
-    // Reading the joystick's X-axis is simple since it's an analog input.
-    // The Y-axis is a digital pin, but we will read it as a button.
-    joyXValue = analogRead(A0); // Read the X-axis
-    joyYValue = digitalRead(JOY_Y_PIN); // Read the Y-axis (as a button)
+    setMuxChannel(JOY_X_CHANNEL);
+    delay(1);
+    joyXValue = analogRead(MUX_Z_PIN);
+
+    setMuxChannel(JOY_Y_CHANNEL);
+    delay(1);
+    joyYValue = analogRead(MUX_Z_PIN);
 
     OSCMessage joyXMsg("/glove/joystick/x");
     joyXMsg.add((float)joyXValue / 1023.0);
@@ -150,12 +147,11 @@ void loop() {
     joyXMsg.empty();
 
     OSCMessage joyYMsg("/glove/joystick/y");
-    joyYMsg.add((float)joyYValue);
+    joyYMsg.add((float)joyYValue / 1023.0);
     Udp.beginPacket(outIp, outPort);
     joyYMsg.send(Udp);
     Udp.endPacket();
     joyYMsg.empty();
-
 
     // === Read BMI270 IMU ===
     if (imu.gyroscopeRead()) {
@@ -172,7 +168,7 @@ void loop() {
       gyroYMsg.send(Udp);
       Udp.endPacket();
       gyroYMsg.empty();
-      
+
       OSCMessage gyroZMsg("/glove/imu/gyro/z");
       gyroZMsg.add(imu.gyroZ);
       Udp.beginPacket(outIp, outPort);
