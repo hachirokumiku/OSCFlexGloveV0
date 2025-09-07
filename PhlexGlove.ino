@@ -1,10 +1,11 @@
 /*
-  OSC Flex Glove for Wemos D1 Mini
+  Monolithic OSC Sketch for Dual Flex Gloves (Left and Right)
 
-  This sketch reads data from multiple sensors on a flex glove and sends it
-  as Open Sound Control (OSC) messages over a Wi-Fi network.
+  This single sketch file can be configured to run on either the left or right
+  glove's Wemos D1 Mini. It reads data from sensors and sends it as Open Sound
+  Control (OSC) messages over a Wi-Fi network.
 
-  Hardware components:
+  Hardware components (x2, one for each glove):
   - Wemos D1 Mini (ESP8266)
   - 74HC4051 8-channel Analog Multiplexer (for flex sensors and joystick)
   - BMI270 IMU (for motion control)
@@ -24,6 +25,10 @@
 #include <Wire.h>
 #include <SparkFun_BMI270_Arduino_Library.h>
 
+// === HAND CONFIGURATION ===
+// IMPORTANT: Set this to 'true' for the LEFT hand glove, or 'false' for the RIGHT hand glove.
+const bool IS_LEFT_HAND = true;
+
 // === Wi-Fi Settings ===
 const char* ssid = "YOUR_WIFI_SSID";
 const char* password = "YOUR_WIFI_PASSWORD";
@@ -33,28 +38,25 @@ const IPAddress outIp(192, 168, 1, 100); // The IP address of your OSC receiver
 const unsigned int outPort = 8000;      // The port of your OSC receiver
 WiFiUDP Udp;
 
-// === Sensor Pin Definitions ===
+// === Sensor Pin Definitions (Same for both hands) ===
 
 // 74HC4051 Analog Multiplexer
-// The A0 pin on the Wemos is the only analog input.
-// This is connected to the Z pin on the multiplexer.
 const int MUX_Z_PIN = A0;
-const int MUX_S0_PIN = D5;  // Select pin S0
-const int MUX_S1_PIN = D6;  // Select pin S1
-const int MUX_S2_PIN = D7;  // Select pin S2
+const int MUX_S0_PIN = D5;
+const int MUX_S1_PIN = D6;
+const int MUX_S2_PIN = D7;
 
-const int NUM_FLEX_SENSORS = 5; // Using 5 flex sensors for a single hand
-const int JOY_X_CHANNEL = 5;    // Mux channel for Joystick X
-const int JOY_Y_CHANNEL = 6;    // Mux channel for Joystick Y
+const int NUM_FLEX_SENSORS = 5;
+const int JOY_X_CHANNEL = 5;
+const int JOY_Y_CHANNEL = 6;
 
 // Buttons
 const int BTN1_PIN = D3;
 const int BTN2_PIN = D4;
 
 // BMI270 IMU
-// Uses the default I2C pins for Wemos D1 Mini
-const int IMU_SDA = D2; // GPIO4
-const int IMU_SCL = D1; // GPIO5
+const int IMU_SDA = D2;
+const int IMU_SCL = D1;
 BMI270 imu;
 
 // === Global Variables ===
@@ -69,10 +71,18 @@ const long interval = 50; // Update interval in milliseconds
 
 // === MUX Helper Function ===
 void setMuxChannel(int channel) {
-  // Set the select pins based on the channel number
   digitalWrite(MUX_S0_PIN, bitRead(channel, 0));
   digitalWrite(MUX_S1_PIN, bitRead(channel, 1));
   digitalWrite(MUX_S2_PIN, bitRead(channel, 2));
+}
+
+// === OSC Address Helper Function ===
+String getHandPrefix() {
+  if (IS_LEFT_HAND) {
+    return "/glove/left";
+  } else {
+    return "/glove/right";
+  }
 }
 
 void setup() {
@@ -101,8 +111,6 @@ void setup() {
   Serial.println(WiFi.localIP());
 
   // Initialize BMI270
-  // Wire.begin(SDA_PIN, SCL_PIN) can be used to override the default I2C pins.
-  // We are using the default D1 and D2, so we don't need to specify pins.
   Wire.begin();
   if (imu.beginI2C() == false) {
     Serial.println("BMI270 not detected. Check wiring.");
@@ -113,6 +121,7 @@ void setup() {
 
 void loop() {
   unsigned long currentMillis = millis();
+  String handPrefix = getHandPrefix();
 
   // Send data at a fixed interval to prevent network flooding
   if (currentMillis - previousMillis >= interval) {
@@ -121,13 +130,12 @@ void loop() {
     // === Read Flex Sensors ===
     for (int i = 0; i < NUM_FLEX_SENSORS; i++) {
       setMuxChannel(i);
-      delay(1); // Small delay for the MUX to settle
+      delay(1);
       flexValues[i] = analogRead(MUX_Z_PIN);
 
-      // Create and send OSC message
-      OSCMessage msg("/glove/flex");
-      msg.add(i); // Add the sensor index
-      msg.add((float)flexValues[i] / 1023.0); // Add the normalized value (0.0 to 1.0)
+      OSCMessage msg(handPrefix + "/flex");
+      msg.add(i);
+      msg.add((float)flexValues[i] / 1023.0);
       Udp.beginPacket(outIp, outPort);
       msg.send(Udp);
       Udp.endPacket();
@@ -143,14 +151,14 @@ void loop() {
     delay(1);
     joyYValue = analogRead(MUX_Z_PIN);
 
-    OSCMessage joyXMsg("/glove/joystick/x");
+    OSCMessage joyXMsg(handPrefix + "/joystick/x");
     joyXMsg.add((float)joyXValue / 1023.0);
     Udp.beginPacket(outIp, outPort);
     joyXMsg.send(Udp);
     Udp.endPacket();
     joyXMsg.empty();
 
-    OSCMessage joyYMsg("/glove/joystick/y");
+    OSCMessage joyYMsg(handPrefix + "/joystick/y");
     joyYMsg.add((float)joyYValue / 1023.0);
     Udp.beginPacket(outIp, outPort);
     joyYMsg.send(Udp);
@@ -159,21 +167,21 @@ void loop() {
 
     // === Read BMI270 IMU ===
     if (imu.gyroscopeRead()) {
-      OSCMessage gyroXMsg("/glove/imu/gyro/x");
+      OSCMessage gyroXMsg(handPrefix + "/imu/gyro/x");
       gyroXMsg.add(imu.gyroX);
       Udp.beginPacket(outIp, outPort);
       gyroXMsg.send(Udp);
       Udp.endPacket();
       gyroXMsg.empty();
 
-      OSCMessage gyroYMsg("/glove/imu/gyro/y");
+      OSCMessage gyroYMsg(handPrefix + "/imu/gyro/y");
       gyroYMsg.add(imu.gyroY);
       Udp.beginPacket(outIp, outPort);
       gyroYMsg.send(Udp);
       Udp.endPacket();
       gyroYMsg.empty();
 
-      OSCMessage gyroZMsg("/glove/imu/gyro/z");
+      OSCMessage gyroZMsg(handPrefix + "/imu/gyro/z");
       gyroZMsg.add(imu.gyroZ);
       Udp.beginPacket(outIp, outPort);
       gyroZMsg.send(Udp);
@@ -182,21 +190,21 @@ void loop() {
     }
 
     if (imu.accelerometerRead()) {
-      OSCMessage accelXMsg("/glove/imu/accel/x");
+      OSCMessage accelXMsg(handPrefix + "/imu/accel/x");
       accelXMsg.add(imu.accelX);
       Udp.beginPacket(outIp, outPort);
       accelXMsg.send(Udp);
       Udp.endPacket();
       accelXMsg.empty();
 
-      OSCMessage accelYMsg("/glove/imu/accel/y");
+      OSCMessage accelYMsg(handPrefix + "/imu/accel/y");
       accelYMsg.add(imu.accelY);
       Udp.beginPacket(outIp, outPort);
       accelYMsg.send(Udp);
       Udp.endPacket();
       accelYMsg.empty();
 
-      OSCMessage accelZMsg("/glove/imu/accel/z");
+      OSCMessage accelZMsg(handPrefix + "/imu/accel/z");
       accelZMsg.add(imu.accelZ);
       Udp.beginPacket(outIp, outPort);
       accelZMsg.send(Udp);
@@ -208,10 +216,9 @@ void loop() {
     btn1State = digitalRead(BTN1_PIN);
     btn2State = digitalRead(BTN2_PIN);
 
-    // Send OSC message only when a button state changes
     if (btn1State != previousBtn1State) {
-      OSCMessage btn1Msg("/glove/button/1");
-      btn1Msg.add(btn1State == LOW ? 1 : 0); // Active low
+      OSCMessage btn1Msg(handPrefix + "/button/1");
+      btn1Msg.add(btn1State == LOW ? 1 : 0);
       Udp.beginPacket(outIp, outPort);
       btn1Msg.send(Udp);
       Udp.endPacket();
@@ -220,8 +227,8 @@ void loop() {
     }
 
     if (btn2State != previousBtn2State) {
-      OSCMessage btn2Msg("/glove/button/2");
-      btn2Msg.add(btn2State == LOW ? 1 : 0); // Active low
+      OSCMessage btn2Msg(handPrefix + "/button/2");
+      btn2Msg.add(btn2State == LOW ? 1 : 0);
       Udp.beginPacket(outIp, outPort);
       btn2Msg.send(Udp);
       Udp.endPacket();
