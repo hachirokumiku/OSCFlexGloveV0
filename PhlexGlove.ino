@@ -7,9 +7,9 @@
 
   Hardware components (x2, one for each glove):
   - Wemos D1 Mini (ESP8266)
-  - 74HC4051 8-channel Analog Multiplexer (for flex sensors and joystick)
+  - 74HC4051 8-channel Analog Multiplexer
   - BMI270 IMU (for motion control)
-  - XY Joystick
+  - XY Joystick with push button
   - Two push buttons
 
   Required Libraries:
@@ -53,6 +53,7 @@ const int JOY_Y_CHANNEL = 6;
 // Buttons
 const int BTN1_PIN = D3;
 const int BTN2_PIN = D4;
+const int JOY_BTN_PIN = D8; // Dedicated GPIO for the joystick button
 
 // BMI270 IMU
 const int IMU_SDA = D2;
@@ -62,9 +63,10 @@ BMI270 imu;
 // === Global Variables ===
 int flexValues[NUM_FLEX_SENSORS];
 int joyXValue, joyYValue;
-int btn1State, btn2State;
+int btn1State, btn2State, joyBtnState;
 int previousBtn1State = 0;
 int previousBtn2State = 0;
+int previousJoyBtnState = 0;
 
 unsigned long previousMillis = 0;
 const long interval = 50; // Update interval in milliseconds
@@ -97,6 +99,7 @@ void setup() {
   // Set up Button pins
   pinMode(BTN1_PIN, INPUT_PULLUP);
   pinMode(BTN2_PIN, INPUT_PULLUP);
+  pinMode(JOY_BTN_PIN, INPUT_PULLUP);
 
   // Connect to Wi-Fi
   Serial.print("Connecting to ");
@@ -215,7 +218,9 @@ void loop() {
     // === Read Buttons ===
     btn1State = digitalRead(BTN1_PIN);
     btn2State = digitalRead(BTN2_PIN);
+    joyBtnState = digitalRead(JOY_BTN_PIN);
 
+    // Send OSC message only when a button state changes
     if (btn1State != previousBtn1State) {
       OSCMessage btn1Msg(handPrefix + "/button/1");
       btn1Msg.add(btn1State == LOW ? 1 : 0);
@@ -234,6 +239,16 @@ void loop() {
       Udp.endPacket();
       btn2Msg.empty();
       previousBtn2State = btn2State;
+    }
+
+    if (joyBtnState != previousJoyBtnState) {
+      OSCMessage joyBtnMsg(handPrefix + "/joystick/button");
+      joyBtnMsg.add(joyBtnState == LOW ? 1 : 0);
+      Udp.beginPacket(outIp, outPort);
+      joyBtnMsg.send(Udp);
+      Udp.endPacket();
+      joyBtnMsg.empty();
+      previousJoyBtnState = joyBtnState;
     }
   }
 }
