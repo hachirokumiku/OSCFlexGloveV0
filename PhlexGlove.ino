@@ -48,11 +48,13 @@ const int JOY_X_CHANNEL = 5;    // Mux channel for Joystick X
 const int JOY_Y_CHANNEL = 6;    // Mux channel for Joystick Y
 
 // Buttons
-const int BTN1_PIN = D1;
-const int BTN2_PIN = D2;
+const int BTN1_PIN = D3;
+const int BTN2_PIN = D4;
 
 // BMI270 IMU
-// Uses the default I2C pins for Wemos D1 Mini (D4/SDA and D3/SCL)
+// Uses the default I2C pins for Wemos D1 Mini
+const int IMU_SDA = D2; // GPIO4
+const int IMU_SCL = D1; // GPIO5
 BMI270 imu;
 
 // === Global Variables ===
@@ -99,6 +101,8 @@ void setup() {
   Serial.println(WiFi.localIP());
 
   // Initialize BMI270
+  // Wire.begin(SDA_PIN, SCL_PIN) can be used to override the default I2C pins.
+  // We are using the default D1 and D2, so we don't need to specify pins.
   Wire.begin();
   if (imu.beginI2C() == false) {
     Serial.println("BMI270 not detected. Check wiring.");
